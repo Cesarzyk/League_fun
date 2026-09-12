@@ -1,18 +1,14 @@
-//use buttplug::{
-//    ButtplugClient,
-//    connector::ButtplugRemoteClientConnector,
-//    device::{ClientDeviceCommandValue, ClientDeviceOutputCommand},
-//    serializer::ButtplugClientJSONSerializer,
-//};
-
+use buttplug::{
+    ButtplugClient, ButtplugClientEvent, ButtplugWebsocketClientTransport,
+    connector::ButtplugRemoteClientConnector, serializer::ButtplugClientJSONSerializer,
+};
+use futures::StreamExt;
 use reqwest::Client;
 use std::{error::Error, fs::File, io::Read};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let client = create_client()?;
-    let player_name = get_player_name(&client).await?;
-    get_player_score(&client, player_name).await?;
+    connect_to_buttplug_server().await;
     Ok(())
 }
 
@@ -50,4 +46,26 @@ async fn get_player_name(client: &Client) -> Result<String, reqwest::Error> {
         .text()
         .await?;
     Ok(player_name)
+}
+
+async fn connect_to_buttplug_server() -> anyhow::Result<()> {
+    let connector = ButtplugRemoteClientConnector::<
+        ButtplugWebsocketClientTransport,
+        ButtplugClientJSONSerializer,
+    >::new(ButtplugWebsocketClientTransport::new_insecure_connector(
+        "ws://127.0.0.1:12345",
+    ));
+
+    let client = ButtplugClient::new("Example Client");
+    client
+        .connect(connector)
+        .await
+        .expect("Can't connect to Buttplug Server, exiting!");
+    let mut event_stream = client.event_stream();
+    while let Some(event) = event_stream.next().await {
+        if let ButtplugClientEvent::DeviceAdded(device) = event {
+            println!("Device {} connected", device.name());
+        }
+    }
+    Ok(())
 }
