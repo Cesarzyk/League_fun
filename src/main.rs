@@ -68,6 +68,8 @@ async fn create_buttplug_client() -> anyhow::Result<ButtplugClient> {
     Ok(client)
 }
 
+async fn create_buttplug_client()
+
 async fn device_connected<S>(mut events: S)
 where
     S: Stream<Item = ButtplugClientEvent> + Unpin,
