@@ -2,13 +2,17 @@ use buttplug::{
     ButtplugClient, ButtplugClientEvent, ButtplugWebsocketClientTransport,
     connector::ButtplugRemoteClientConnector, serializer::ButtplugClientJSONSerializer,
 };
-use futures::StreamExt;
+use futures::{Stream, StreamExt, task::Spawn};
 use reqwest::Client;
 use std::{error::Error, fs::File, io::Read};
+use tokio::io::{self, AsyncBufReadExt, BufReader};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    connect_to_buttplug_server().await;
+    let client = create_buttplug_client();
+    let mut events = client.await?.event_stream();
+    tokio::spawn(device_connected(events));
+    wait_for_input().await;
     Ok(())
 }
 
@@ -48,7 +52,7 @@ async fn get_player_name(client: &Client) -> Result<String, reqwest::Error> {
     Ok(player_name)
 }
 
-async fn connect_to_buttplug_server() -> anyhow::Result<()> {
+async fn create_buttplug_client() -> anyhow::Result<ButtplugClient> {
     let connector = ButtplugRemoteClientConnector::<
         ButtplugWebsocketClientTransport,
         ButtplugClientJSONSerializer,
@@ -61,11 +65,33 @@ async fn connect_to_buttplug_server() -> anyhow::Result<()> {
         .connect(connector)
         .await
         .expect("Can't connect to Buttplug Server, exiting!");
-    let mut event_stream = client.event_stream();
-    while let Some(event) = event_stream.next().await {
-        if let ButtplugClientEvent::DeviceAdded(device) = event {
-            println!("Device {} connected", device.name());
+    Ok(client)
+}
+
+async fn device_connected<S>(mut events: S)
+where
+    S: Stream<Item = ButtplugClientEvent> + Unpin,
+{
+    while let Some(event) = events.next().await {
+        match event {
+            ButtplugClientEvent::DeviceAdded(device) => {
+                println!("Device {} connected", device.name());
+            }
+            ButtplugClientEvent::DeviceRemoved(info) => {
+                println!("Device {} Removed!", info.name());
+            }
+            ButtplugClientEvent::ScanningFinished => {
+                println!("Device scanning is finished!");
+            }
+            _ => {}
         }
     }
-    Ok(())
+}
+
+async fn wait_for_input() {
+    BufReader::new(io::stdin())
+        .lines()
+        .next_line()
+        .await
+        .unwrap();
 }
